@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="ms" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTW Central Monitoring Dashboard - HSE System 2026</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        hse: {
+                            dark: '#0f172a',
+                            card: '#1e293b',
+                            border: '#334155',
+                            active: '#22c55e',
+                            expiring: '#f59e0b',
+                            expired: '#ef4444',
+                            closed: '#64748b',
+                            primary: '#0284c7'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse CDN for parsing CSV from Google Sheets -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <!-- SheetJS CDN for reading and parsing Excel (.xlsx / .xls) files directly -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* Custom Scrollbar for Sleek Dark Theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        
+        /* Pulse Animation for Critical/Expiring Items */
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgba(239, 68, 68, 0.8); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+            50% { border-color: rgba(239, 68, 68, 0.2); box-shadow: 0 0 2px rgba(239, 68, 68, 0.1); }
+        }
+        .pulse-danger {
+            animation: pulse-border 2s infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { border-color: rgba(245, 158, 11, 0.8); box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+            50% { border-color: rgba(245, 158, 11, 0.2); box-shadow: 0 0 2px rgba(245, 158, 11, 0.1); }
+        }
+        .pulse-warning {
+            animation: pulse-warning 2.5s infinite;
+        }
+
+        /* TV Kiosk Large Display Style Adjustments */
+        .tv-mode {
+            font-size: 1.15rem;
+        }
+        .tv-mode .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+        .tv-mode .kpi-value {
+            font-size: 3.25rem !important;
+            font-weight: 900;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans flex flex-col antialiased">
+
+    <!-- Header Navigation -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+        <div class="px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+            <!-- Brand & Title -->
+            <div class="flex items-center space-x-3">
+                <div class="bg-gradient-to-tr from-sky-600 to-emerald-500 p-2.5 rounded-xl shadow-md flex items-center justify-center">
+                    <i class="fa-solid font-black fa-hard-hat text-2xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                        PTW CENTRAL MONITORING
+                        <span class="bg-sky-500/20 text-sky-400 text-xs px-2.5 py-0.5 rounded-full border border-sky-500/30">HSE Ops 2026</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Sistem Pemantauan Permat Permit to Work Interaktif & Multi-User Live Sync</p>
+                </div>
+            </div>
+
+            <!-- Header Quick Actions & Digital Clock -->
+            <div class="flex items-center gap-3">
+                <!-- Realtime Digital Clock -->
+                <div class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-right hidden sm:block">
+                    <div id="liveClock" class="text-sm font-mono font-bold text-sky-400">00:00:00 AM</div>
+                    <div id="liveDate" class="text-[10px] text-slate-400 uppercase tracking-wider">1 OKTOBER 2026</div>
+                </div>
+
+                <!-- Multi-User Cloud Realtime Sync Indicator -->
+                <div id="cloudSyncBadge" class="bg-sky-500/20 text-sky-400 text-[10px] px-2.5 py-1 rounded-full border border-sky-500/30 font-semibold flex items-center gap-1.5">
+                    <span id="cloudDot" class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+                    <span id="cloudText">Cloud Live Sync Active</span>
+                </div>
+
+                <!-- Google Sheet Status Badge -->
+                <div id="liveSyncBadge" class="hidden bg-emerald-500/20 text-emerald-400 text-[10px] px-2.5 py-1 rounded-full border border-emerald-500/30 font-semibold md:flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Google Sheet Synced</span>
+                </div>
+
+                <!-- Add New PTW Button -->
+                <button onclick="openAddPtwModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-900/30">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Tambah PTW</span>
+                </button>
+
+                <!-- Sync / Connect Sheet Button -->
+                <button onclick="openSyncModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded-lg text-sm transition flex items-center gap-2">
+                    <i class="fa-solid fa-file-excel text-emerald-400"></i>
+                    <span class="hidden md:inline">Google Sheet & XLSX Import</span>
+                </button>
+
+                <!-- Export Database to Excel Button -->
+                <button onclick="exportToExcel()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-2 rounded-lg text-sm transition flex items-center gap-2" title="Eksport Pangkalan Data ke Excel">
+                    <i class="fa-solid fa-download text-sky-400"></i>
+                    <span class="hidden lg:inline">Eksport Excel</span>
+                </button>
+
+                <!-- TV / Kiosk Toggle Button -->
+                <button id="tvModeBtn" onclick="toggleTvMode()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-tv"></i>
+                    <span id="tvBtnText">Mod TV</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Container -->
+    <main class="flex-1 p-4 md:p-6 space-y-6 max-w-[1800px] w-full mx-auto">
+
+        <!-- Top Alert Banner (Displays if critical PTWs exist) -->
+        <div id="alertBanner" class="hidden bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-xl flex items-center justify-between gap-4 text-amber-300 text-sm">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg animate-bounce"></i>
+                <div>
+                    <span class="font-bold">Perhatian HSE:</span>
+                    <span id="alertMessage">Terdapat permit kerja yang memerlukan tindakan susulan segera.</span>
+                </div>
+            </div>
+            <button onclick="document.getElementById('alertBanner').classList.add('hidden')" class="text-amber-400 hover:text-amber-200 text-xs font-semibold uppercase tracking-wider">
+                Tutup
+            </button>
+        </div>
+
+        <!-- KPI Metrics Grid -->
+        <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <!-- Total PTW -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Jumlah PTW (2026)</p>
+                        <h3 id="kpiTotal" class="kpi-value text-3xl font-extrabold text-white mt-1">0</h3>
+                    </div>
+                    <div class="p-2.5 bg-sky-500/10 rounded-lg text-sky-400">
+                        <i class="fa-solid fa-file-contract text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center text-xs text-slate-400">
+                    <span id="kpiMonthText" class="text-sky-400 font-semibold">Tahun 2026</span>
+                </div>
+            </div>
+
+            <!-- Active PTW -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Aktif (Active)</p>
+                        <h3 id="kpiActive" class="kpi-value text-3xl font-extrabold text-emerald-400 mt-1">0</h3>
+                    </div>
+                    <div class="p-2.5 bg-emerald-500/10 rounded-lg text-emerald-400">
+                        <i class="fa-solid fa-circle-check text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center text-xs text-emerald-400/80">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-ping"></span>
+                    Permit Sedang Berjalan
+                </div>
+            </div>
+
+            <!-- Expiring Soon -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group" id="kpiExpiringCard">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Expiring Soon (&lt;2j)</p>
+                        <h3 id="kpiExpiring" class="kpi-value text-3xl font-extrabold text-amber-400 mt-1">0</h3>
+                    </div>
+                    <div class="p-2.5 bg-amber-500/10 rounded-lg text-amber-400">
+                        <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center text-xs text-amber-400/80">
+                    <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                    Perlu Pembaharuan/Penutupan
+                </div>
+            </div>
+
+            <!-- Expired PTW -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group" id="kpiExpiredCard">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Tamat Tempoh (Expired)</p>
+                        <h3 id="kpiExpired" class="kpi-value text-3xl font-extrabold text-red-500 mt-1">0</h3>
+                    </div>
+                    <div class="p-2.5 bg-red-500/10 rounded-lg text-red-400">
+                        <i class="fa-solid fa-ban text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center text-xs text-red-400/80">
+                    <i class="fa-solid fa-skull-crossbones mr-1"></i>
+                    Tamat &amp; Belum Ditutup
+                </div>
+            </div>
+
+            <!-- Closed PTW -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group col-span-2 md:col-span-1">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Selesai (Closed)</p>
+                        <h3 id="kpiClosed" class="kpi-value text-3xl font-extrabold text-slate-400 mt-1">0</h3>
+                    </div>
+                    <div class="p-2.5 bg-slate-800 rounded-lg text-slate-400">
+                        <i class="fa-solid fa-box-archive text-xl"></i>
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center text-xs text-slate-400">
+                    <i class="fa-solid fa-circle-notch mr-1"></i>
+                    Telah Disah Penutupan
+                </div>
+            </div>
+        </section>
+
+        <!-- Visual Charts Grid Row 1 -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Monthly Trend Chart -->
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl shadow-lg lg:col-span-2 flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="card-title text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-sky-400"></i>
+                            Jumlah Permit Mengikut Bulan (2026)
+                        </h3>
+                        <p class="text-xs text-slate-400">Statistik keseluruhan kelulusan permit bulanan</p>
+                    </div>
+                    <div class="text-xs bg-slate-800 px-2.5 py-1 rounded text-slate-300">
+                        Carta Bar Trend
+                    </div>
+                </div>
+                <div class="flex-1 min-h-[260px] relative">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Internal vs External Doughnut -->
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="card-title text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-users-gear text-emerald-400"></i>
+                            Nisbah Tenaga Kerja
+                        </h3>
+                        <p class="text-xs text-slate-400">Internal Workforce vs External Contractor</p>
+                    </div>
+                </div>
+                <div class="flex-1 min-h-[220px] relative flex items-center justify-center">
+                    <canvas id="workforceChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Visual Charts Grid Row 2 -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Type of Work Distribution Chart -->
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl shadow-lg">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="card-title text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-fire-flame-curved text-amber-400"></i>
+                            Jenis Kerja Risiko Tinggi
+                        </h3>
+                        <p class="text-xs text-slate-400">Kategori permit kerja berbahaya</p>
+                    </div>
+                </div>
+                <div class="min-h-[240px] relative">
+                    <canvas id="typeOfWorkChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Location Breakdown Chart -->
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl shadow-lg">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="card-title text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-location-dot text-indigo-400"></i>
+                            Agihan Mengikut Lokasi / Zone
+                        </h3>
+                        <p class="text-xs text-slate-400">Kawasan operasi &amp; fasiliti</p>
+                    </div>
+                </div>
+                <div class="min-h-[240px] relative">
+                    <canvas id="locationChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Contractors List -->
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl shadow-lg flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 class="card-title text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-building text-sky-400"></i>
+                            Kontraktor Utama Active
+                        </h3>
+                        <p class="text-xs text-slate-400">Syarikat luar teramai berada di tapak</p>
+                    </div>
+                </div>
+                <div id="contractorList" class="space-y-3 flex-1 overflow-y-auto max-h-[240px] pr-1">
+                    <!-- Dynamic contractor list items inserted via JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Live PTW Monitoring Table Section -->
+        <section class="bg-slate-900/90 border border-slate-800 rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <!-- Table Header & Interactive Controls -->
+            <div class="p-5 border-b border-slate-800 flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-slate-900">
+                <div>
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-sky-400"></i>
+                        Senarai Semasa &amp; Akan Datang PTW
+                    </h3>
+                    <p class="text-xs text-slate-400">Pangkalan data Permit to Work masa-nyata terselaras secara awan</p>
+                </div>
+
+                <!-- Dropdown Filters & Search Controls -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 lg:flex items-center gap-2.5">
+                    <!-- Search Input -->
+                    <div class="relative col-span-2 sm:col-span-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                        <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Cari PTW No / Deskripsi / Kontraktor..." class="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:border-sky-500">
+                    </div>
+
+                    <!-- Filter Status -->
+                    <select id="filterStatus" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                        <option value="ALL">Semua Status</option>
+                        <option value="Active">Active Only</option>
+                        <option value="Expiring Soon">Expiring Soon</option>
+                        <option value="Expired">Expired</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+
+                    <!-- Filter Working Risk -->
+                    <select id="filterRisk" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                        <option value="ALL">Semua Working Risk</option>
+                        <option value="Critical Risk">Critical Risk</option>
+                        <option value="High Risk">High Risk</option>
+                        <option value="Medium Risk">Medium Risk</option>
+                        <option value="Low Risk">Low Risk</option>
+                    </select>
+
+                    <!-- Filter Type of Work -->
+                    <select id="filterType" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                        <option value="ALL">Semua Jenis Kerja</option>
+                    </select>
+
+                    <!-- Filter Location -->
+                    <select id="filterLocation" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                        <option value="ALL">Semua Lokasi</option>
+                    </select>
+
+                    <!-- Filter Workforce Type -->
+                    <select id="filterWorkforce" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500">
+                        <option value="ALL">Internal / External</option>
+                        <option value="Internal">Internal</option>
+                        <option value="External">External Contractor</option>
+                    </select>
+
+                    <!-- Reset Filter Button -->
+                    <button onclick="resetFilters()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-2 rounded-lg border border-slate-700 transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>Reset</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="overflow-x-auto min-h-[300px] max-h-[520px]" id="tableScrollContainer">
+                <table class="w-full text-left text-xs border-collapse min-w-[1200px]">
+                    <thead class="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold sticky top-0 z-10 border-b border-slate-800">
+                        <tr>
+                            <th class="py-3 px-3">ID / PTW No</th>
+                            <th class="py-3 px-3">Jenis Kerja &amp; Short Description</th>
+                            <th class="py-3 px-3">Kontraktor &amp; Pemohon</th>
+                            <th class="py-3 px-3">Lokasi &amp; Risk</th>
+                            <th class="py-3 px-3">Tempoh (From - To)</th>
+                            <th class="py-3 px-3">Kelulusan &amp; Daily Update</th>
+                            <th class="py-3 px-3">Status</th>
+                            <th class="py-3 px-3 text-center">Tindakan</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ptwTableBody" class="divide-y divide-slate-800/60 text-slate-200">
+                        <!-- Dynamic table rows loaded here via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Table Footer Stats & Pagination -->
+            <div class="p-3 bg-slate-950 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+                <div>
+                    Menunjukkan <span id="showingCount" class="font-bold text-slate-200">0</span> daripada <span id="totalRecordCount" class="font-bold text-slate-200">0</span> rekod permit.
+                </div>
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-rotate text-sky-400 animate-spin"></i> Diselaras secara langsung ke semua peranti pengguna
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal 1: Quick Add PTW Form -->
+    <div id="addPtwModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-file-circle-plus text-emerald-400"></i>
+                    Daftar Permit Kerja Baharu (Lengkap 17 Medan)
+                </h3>
+                <button onclick="closeAddPtwModal()" class="text-slate-400 hover:text-white text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <form id="newPtwForm" onsubmit="handleNewPtwSubmit(event)" class="p-6 space-y-4 overflow-y-auto flex-1 text-xs text-slate-300">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">ID *</label>
+                        <input type="text" id="addId" required placeholder="01" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">PTW No *</label>
+                        <input type="text" id="addPtwNo" required placeholder="PTW-2026-089" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Working Risk *</label>
+                        <select id="addWorkingRisk" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            <option value="Critical Risk">Critical Risk</option>
+                            <option value="High Risk" selected>High Risk</option>
+                            <option value="Medium Risk">Medium Risk</option>
+                            <option value="Low Risk">Low Risk</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">Type of Work *</label>
+                        <input type="text" id="addType" list="typeSuggestions" required placeholder="Pilih atau taip jenis kerja..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                        <datalist id="typeSuggestions">
+                            <option value="Hot Work (Kerja Panas)"></option>
+                            <option value="Confined Space Entry"></option>
+                            <option value="Working at Height"></option>
+                            <option value="Electrical High Voltage"></option>
+                            <option value="Lifting & Crane Operation"></option>
+                            <option value="Chemical Handling & Excavation"></option>
+                            <option value="General Maintenance"></option>
+                        </datalist>
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Kategori Tenaga Kerja *</label>
+                        <select id="addWorkforceType" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            <option value="External">External Contractor</option>
+                            <option value="Internal">Internal Workforce</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">Contractor / Syarikat *</label>
+                        <input type="text" id="addContractor" required placeholder="Contoh: Apex Engineering Services" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Location *</label>
+                        <input type="text" id="addLocation" list="locationSuggestions" required placeholder="Contoh: Plant Area A - Tank 102" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                        <datalist id="locationSuggestions">
+                            <option value="Plant Area A - Reactor"></option>
+                            <option value="Plant Area B - Boiler House"></option>
+                            <option value="Warehouse / Storage Facility"></option>
+                            <option value="Main Substation 33kV"></option>
+                            <option value="Pipe Rack / Jetty Terminal"></option>
+                            <option value="Office & Admin Complex"></option>
+                        </datalist>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-medium mb-1">Short Description (Deskripsi Ringkas Kerja) *</label>
+                    <input type="text" id="addShortDescription" required placeholder="Contoh: Kimpalan paip utama bertekanan tinggi 10-inci" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">Applicant *</label>
+                        <input type="text" id="addApplicant" required placeholder="Contoh: Ahmad Razali (HSE Supervisor)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Approval *</label>
+                        <input type="text" id="addApproval" required placeholder="Contoh: Approved (Ir. Faizal - HSE Mgr)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">Date From (Masa Mula) *</label>
+                        <input type="datetime-local" id="addStart" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Date To (Masa Tamat) *</label>
+                        <input type="datetime-local" id="addEnd" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-medium mb-1">Daily Update</label>
+                        <input type="text" id="addDailyUpdate" placeholder="Contoh: TBM Selesai, Ujian Gas LEL 0%, O2 20.9%" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-medium mb-1">Remarks</label>
+                        <input type="text" id="addRemarks" placeholder="Contoh: Pematuhan PPE 100% & Permit Tempat Kerja Sah" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-slate-800 flex justify-end gap-3">
+                    <button type="button" onclick="closeAddPtwModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition">Batal</button>
+                    <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-lg transition">Simpan &amp; Sync PTW</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal 2: Google Sheets & XLSX Import Settings -->
+    <div id="syncModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-database text-sky-400"></i>
+                    Pangkalan Data PTW 2026: Excel & Google Sheet Sync
+                </h3>
+                <button onclick="closeSyncModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Option 1: Upload Excel File PTW 2026.xlsx directly -->
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <h4 class="text-xs font-bold text-emerald-400 flex items-center gap-2">
+                    <i class="fa-solid fa-file-excel"></i>
+                    Opsi 1: Muat Naik Fail Excel (PTW 2026.xlsx) Terus
+                </h4>
+                <p class="text-[11px] text-slate-400">Pilih fail <code class="text-amber-300">PTW 2026.xlsx</code> dari komputer anda untuk dimasukkan terus ke dalam pangkalan data dashboard:</p>
+                <input type="file" id="xlsxFileInput" accept=".xlsx, .xls, .csv" onchange="handleXlsxUpload(event)" class="w-full text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer bg-slate-900 border border-slate-800 rounded-lg">
+                <p id="xlsxStatusMsg" class="text-[11px] hidden font-semibold"></p>
+            </div>
+
+            <!-- Option 2: Google Sheets URL Sync -->
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <h4 class="text-xs font-bold text-sky-400 flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    Opsi 2: Sambungkan Link Live Google Sheet
+                </h4>
+                <div class="text-xs text-slate-300 space-y-1.5 font-mono text-[11px]">
+                    <p class="text-slate-400">1. Buka fail PTW di Google Sheets &amp; tekan <b class="text-amber-300">File &gt; Share &gt; Publish to web</b>.</p>
+                    <p class="text-slate-400">2. Pilih format <b class="text-emerald-400">Comma-separated values (.csv)</b>.</p>
+                    <p class="text-slate-400">3. Salin &amp; tampal pautan URL di bawah:</p>
+                </div>
+                <input type="url" id="csvUrlInput" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vS5LCp7eJmGPxIlaO90QLl24sAlYFhyJhM1ytXniIkux0pp4i-2WF-4PcdcZaJjDlppVJM3kyATMEQA/pub?gid=0&single=true&output=csv" placeholder="https://docs.google.com/spreadsheets/d/..." class="w-full bg-slate-900 border border-slate-800 text-xs text-white rounded-lg p-2.5 focus:outline-none focus:border-sky-500">
+                <p id="syncStatusMsg" class="text-[11px] hidden font-semibold"></p>
+                <div class="flex justify-end pt-1">
+                    <button onclick="fetchGoogleSheetCsv()" id="btnSyncSubmit" class="px-4 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-xs shadow-md flex items-center gap-1.5">
+                        <i class="fa-solid fa-sync"></i>
+                        <span>Sync Dari Google Sheet</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Option 3: Direct CSV Text Paste (Alternative if link blocked) -->
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <h4 class="text-xs font-bold text-amber-400 flex items-center gap-2">
+                    <i class="fa-solid fa-paste"></i>
+                    Opsi 3: Tampal Data CSV / Teks Terus
+                </h4>
+                <p class="text-[11px] text-slate-400">Jika pautan Google Sheet disekat atau gagal dibuka, salin &amp; tampal kandungan fail CSV/Excel di sini:</p>
+                <textarea id="rawCsvTextArea" rows="3" placeholder="ID,PTW No,Type of Work,Contractor,Location,Applicant,Approval,Date From,Date To,Remarks,Month,Duration (Days),Status,Working Risk,Daily Update,Last Updated,Short Description&#10;1,PTW-2026-001,Hot Work,Apex Eng,Plant A,Azman Ali,Approved,2026-10-01 08:00,2026-10-05 17:00,Gas test ok,October,5,Active,High Risk,TBM Done,2026-10-01 08:30,Welding pipe line" class="w-full bg-slate-900 border border-slate-800 text-xs text-slate-200 rounded-lg p-2.5 font-mono focus:outline-none focus:border-amber-500"></textarea>
+                <div class="flex justify-end">
+                    <button onclick="processRawCsvText()" class="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg text-xs shadow-md flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-import"></i>
+                        <span>Proses Data Tampal</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-3 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-400">
+                <p class="font-bold text-slate-200 mb-1"><i class="fa-solid fa-table-list text-sky-400 mr-1"></i> Format 17 Tajuk Lajur yang Dikesan Automatik:</p>
+                <p class="font-mono text-[10px] text-slate-300 leading-relaxed">ID | PTW No | Type of Work | Contractor | Location | Applicant | Approval | Date From | Date To | Remarks | Month | Duration (Days) | Status | Working Risk | Daily Update | Last Updated | Short Description</p>
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                <button onclick="resetToDefaultData()" class="text-xs text-amber-400 hover:underline">
+                    <i class="fa-solid fa-rotate-left mr-1"></i> Reset Data Demo 2026
+                </button>
+                <button onclick="closeSyncModal()" class="px-4 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 3: View Details Modal -->
+    <div id="detailModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info text-sky-400"></i>
+                    Maklumat Terperinci Permit To Work (17 Medan Spreadsheet)
+                </h3>
+                <button onclick="closeDetailModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div id="detailContent" class="space-y-3 text-xs text-slate-300">
+                <!-- Dynamic Content Filled by JS -->
+            </div>
+
+            <div class="pt-3 border-t border-slate-800 flex justify-between items-center">
+                <span id="detailBadge"></span>
+                <button onclick="closeDetailModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Real-Time Firestore Sync Module -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by environment or default fallback
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'hse-ptw-dashboard-2026';
+        let firebaseApp = null;
+        let auth = null;
+        let db = null;
+        let currentUser = null;
+
+        // Make Firestore synchronization methods available globally on window
+        window.isFirestoreActive = false;
+
+        async function initFirestore() {
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    firebaseApp = initializeApp(firebaseConfig);
+                    auth = getAuth(firebaseApp);
+                    db = getFirestore(firebaseApp);
+
+                    // Auth Before Queries
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    currentUser = auth.currentUser;
+                    window.isFirestoreActive = true;
+                    console.log("Firestore initialized successfully. User:", currentUser?.uid);
+
+                    // Update UI Cloud Sync Badge
+                    const cloudText = document.getElementById('cloudText');
+                    const cloudDot = document.getElementById('cloudDot');
+                    if (cloudText) cloudText.textContent = "Multi-User Realtime Active";
+                    if (cloudDot) cloudDot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-ping";
+
+                    // Subscribe to real-time changes
+                    subscribeToFirestore();
+                } else {
+                    console.warn("Firebase config not available. Running in local storage mode.");
+                    updateCloudBadgeOffline();
+                }
+            } catch (err) {
+                console.error("Error initializing Firebase:", err);
+                updateCloudBadgeOffline();
+            }
+        }
+
+        function updateCloudBadgeOffline() {
+            const cloudText = document.getElementById('cloudText');
+            const cloudDot = document.getElementById('cloudDot');
+            if (cloudText) cloudText.textContent = "Local Session Mode";
+            if (cloudDot) cloudDot.className = "w-2 h-2 rounded-full bg-amber-400";
+        }
+
+        // Realtime Listener
+        function subscribeToFirestore() {
+            if (!db || !currentUser) return;
+
+            // MANDATORY RULE: Path MUST be /artifacts/{appId}/public/data/{collectionName}
+            const ptwColRef = collection(db, 'artifacts', appId, 'public', 'data', 'ptw_records');
+
+            // MANDATORY RULE: Simple query without orderBy/where for rule compliance & no index requirement
+            onSnapshot(ptwColRef, (snapshot) => {
+                if (snapshot.empty) {
+                    console.log("Firestore collection empty. Initializing default 2026 data...");
+                    seedInitialDataToFirestore();
+                    return;
+                }
+
+                const docsData = [];
+                snapshot.forEach(docSnap => {
+                    docsData.push(docSnap.data());
+                });
+
+                // Update internal database in memory
+                window.ptwDatabase = docsData;
+                window.saveLocalBackup();
+                window.populateFilterDropdowns();
+                window.recalculateStatuses();
+                window.renderDashboard();
+            }, (error) => {
+                console.error("Firestore onSnapshot error:", error);
+            });
+        }
+
+        // Seed initial data if Firestore is empty
+        async function seedInitialDataToFirestore() {
+            if (!db || !currentUser) return;
+            try {
+                const batch = writeBatch(db);
+                window.ptwDatabase.forEach(ptw => {
+                    // Safe ID sanitization
+                    const safeId = ptw.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'ptw_records', safeId);
+                    batch.set(docRef, ptw);
+                });
+                await batch.commit();
+                console.log("Seeded initial PTW database to Firestore cloud.");
+            } catch (e) {
+                console.error("Failed to seed initial data:", e);
+            }
+        }
+
+        // Save / Update Single PTW Document to Cloud
+        window.savePtwToCloud = async function(ptw) {
+            if (!db || !currentUser || !window.isFirestoreActive) return;
+            try {
+                const safeId = ptw.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'ptw_records', safeId);
+                await setDoc(docRef, ptw, { merge: true });
+            } catch (err) {
+                console.error("Error saving PTW to Firestore cloud:", err);
+            }
+        };
+
+        // Sync Array of PTWs to Cloud (Batch Write for imports)
+        window.saveBulkPtwsToCloud = async function(ptwList) {
+            if (!db || !currentUser || !window.isFirestoreActive) return;
+            try {
+                const batch = writeBatch(db);
+                ptwList.forEach(ptw => {
+                    const safeId = ptw.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'ptw_records', safeId);
+                    batch.set(docRef, ptw, { merge: true });
+                });
+                await batch.commit();
+            } catch (err) {
+                console.error("Error batch saving to Firestore cloud:", err);
+            }
+        };
+
+        // Initialize Firestore on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            initFirestore();
+        });
+    </script>
+
+    <!-- Main Logic Script -->
+    <script>
+        /* 
+         * HSE PTW Dashboard Core UI Logic & Rebuilt Data Structure (17 Columns Alignment)
+         */
+
+        // Initial Rebuilt Sample Data aligned to 17 spreadsheet columns
+        const SAMPLE_PTW_DATA = [
+            {
+                id: "1",
+                ptwNo: "PTW-2026-001",
+                type: "Hot Work (Kerja Panas)",
+                contractor: "Apex Engineering Services",
+                workforceType: "External",
+                location: "Plant Area A - Tank 102",
+                applicant: "Azman Ali (HSE Tech)",
+                approval: "Approved (Ir. Faizal - HSE Mgr)",
+                startTime: "2026-10-01T08:00",
+                endTime: "2026-10-05T17:00",
+                remarks: "Permit kerja panas sah dengan penyeliaan bomba tempatan.",
+                month: "October",
+                duration: 5,
+                status: "Active",
+                workingRisk: "High Risk",
+                dailyUpdate: "TBM Selesai, Ujian Gas Pass (0% LEL, 20.9% O2)",
+                lastUpdated: "2026-10-01 08:30",
+                shortDescription: "Kimpalan paip utama bertekanan tinggi 10-inci",
+                pax: 5,
+                manualClosed: false
+            },
+            {
+                id: "2",
+                ptwNo: "PTW-2026-002",
+                type: "Confined Space Entry",
+                contractor: "Internal Maintenance Team",
+                workforceType: "Internal",
+                location: "Plant Area B - Boiler Vessel 04",
+                applicant: "Kipen Kumar (Superintendent)",
+                approval: "Approved (En. Hisham - Operations Head)",
+                startTime: "2026-10-01T09:00",
+                endTime: "2026-10-01T18:00",
+                remarks: "Penjelas Udara (Blower) dihidupkan berterusan sepanjang kerja.",
+                month: "October",
+                duration: 1,
+                status: "Active",
+                workingRisk: "Critical Risk",
+                dailyUpdate: "Pengujian Udara Berkaliber, Standby Watcher Bertugas",
+                lastUpdated: "2026-10-01 09:15",
+                shortDescription: "Pembersihan keladak dalaman reaktor dandang",
+                pax: 3,
+                manualClosed: false
+            },
+            {
+                id: "3",
+                ptwNo: "PTW-2026-003",
+                type: "Electrical High Voltage",
+                contractor: "Mega Electrical Works",
+                workforceType: "External",
+                location: "Main Substation 33kV",
+                applicant: "Suresh Rao (Chargeman A4)",
+                approval: "Approved (Puan Salmah - Plant Mgr)",
+                startTime: "2026-10-01T07:30",
+                endTime: "2026-10-02T16:30",
+                remarks: "Prosedur LOTO (Lockout Tagout) disahkan & diuji voltan 0V.",
+                month: "October",
+                duration: 2,
+                status: "Active",
+                workingRisk: "Critical Risk",
+                dailyUpdate: "Isolasi Elektrik Disahkan, Sarung Tangan Penebat Diperiksa",
+                lastUpdated: "2026-10-01 07:45",
+                shortDescription: "Penyelenggaraan pemutus litar utama (ACB 33kV)",
+                pax: 4,
+                manualClosed: false
+            },
+            {
+                id: "4",
+                ptwNo: "PTW-2026-004",
+                type: "Working at Height",
+                contractor: "Heights Safe Tech",
+                workforceType: "External",
+                location: "Pipe Rack / Jetty Terminal",
+                applicant: "Mohd Hafiz (Scaffolding Inspector)",
+                approval: "Approved (En. Azlan - Safety Lead)",
+                startTime: "2026-10-01T08:30",
+                endTime: "2026-10-01T12:00",
+                remarks: "Abah-abah keselamatan berkembar (Double lanyard) diwajibkan.",
+                month: "October",
+                duration: 1,
+                status: "Expiring Soon",
+                workingRisk: "High Risk",
+                dailyUpdate: "Pemeriksaan Tali Pinggang & Scaffolding Tag Hijau Disah",
+                lastUpdated: "2026-10-01 08:35",
+                shortDescription: "Pemasangan perancah (Scaffolding) tingkat 4 jetty",
+                pax: 6,
+                manualClosed: false
+            },
+            {
+                id: "5",
+                ptwNo: "PTW-2026-005",
+                type: "General Maintenance",
+                contractor: "Internal HSE Crew",
+                workforceType: "Internal",
+                location: "Office & Admin Complex",
+                applicant: "Sarah Tan (Facility Officer)",
+                approval: "Approved (Dato' Razak - Admin Dir)",
+                startTime: "2026-09-28T08:00",
+                endTime: "2026-09-28T17:00",
+                remarks: "Penyelenggaraan siap mengikut jadual.",
+                month: "September",
+                duration: 1,
+                status: "Closed",
+                workingRisk: "Low Risk",
+                dailyUpdate: "Kerja Ditutup Rasmi & Tapak Diperiksa Bersih",
+                lastUpdated: "2026-09-28 17:15",
+                shortDescription: "Servis bulanan penghawa dingin Blok Utama",
+                pax: 2,
+                manualClosed: true
+            },
+            {
+                id: "6",
+                ptwNo: "PTW-2026-006",
+                type: "Lifting & Crane Operation",
+                contractor: "Titan Heavy Lifting",
+                workforceType: "External",
+                location: "Warehouse / Storage Facility",
+                applicant: "David Wong (Rigger Master)",
+                approval: "Approved (Ir. Faizal - HSE Mgr)",
+                startTime: "2026-10-01T06:00",
+                endTime: "2026-10-01T10:00",
+                remarks: "Kawasan diikatan garisan keselamatan (Barricaded area).",
+                month: "October",
+                duration: 1,
+                status: "Active",
+                workingRisk: "High Risk",
+                dailyUpdate: "Sijil Kren Diperiksa, Pelan Pengangkatan (Lifting Plan) Pass",
+                lastUpdated: "2026-10-01 06:15",
+                shortDescription: "Pengangkatan tangki simpanan baru bersaiz 15 tan",
+                pax: 8,
+                manualClosed: false
+            },
+            {
+                id: "7",
+                ptwNo: "PTW-2026-007",
+                type: "Chemical Handling & Excavation",
+                contractor: "Eco Earth Diggers",
+                workforceType: "External",
+                location: "Plant Area A - Pit 3",
+                applicant: "Mustafa Bakar (Site Eng)",
+                approval: "Approved (En. Hisham - Ops Head)",
+                startTime: "2026-09-30T08:00",
+                endTime: "2026-09-30T17:00",
+                remarks: "Penutupan belum disahkan oleh pengurus tapak.",
+                month: "September",
+                duration: 1,
+                status: "Expired",
+                workingRisk: "Medium Risk",
+                dailyUpdate: "Permit Tamat Tempoh - Kerja Diberhentikan",
+                lastUpdated: "2026-09-30 17:30",
+                shortDescription: "Kerja-kerja pengikisan tanah terkontaminasi kimia",
+                pax: 4,
+                manualClosed: false
+            }
+        ];
+
+        // Populate Dropdowns
+        window.populateFilterDropdowns = function() {
+            const typeSelect = document.getElementById('filterType');
+            const locSelect = document.getElementById('filterLocation');
+
+            const currType = typeSelect.value;
+            const currLoc = locSelect.value;
+
+            const types = [...new Set(window.ptwDatabase.map(p => p.type))].filter(Boolean);
+            const locations = [...new Set(window.ptwDatabase.map(p => p.location))].filter(Boolean);
+
+            typeSelect.innerHTML = '<option value="ALL">Semua Jenis Kerja</option>';
+            types.forEach(t => {
+                typeSelect.innerHTML += `<option value="${t}">${t}</option>`;
+            });
+
+            locSelect.innerHTML = '<option value="ALL">Semua Lokasi</option>';
+            locations.forEach(l => {
+                locSelect.innerHTML += `<option value="${l}">${l}</option>`;
+            });
+
+            typeSelect.value = currType || 'ALL';
+            locSelect.value = currLoc || 'ALL';
+        };
+
+        // Apply Filters
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const status = document.getElementById('filterStatus').value;
+            const risk = document.getElementById('filterRisk') ? document.getElementById('filterRisk').value : 'ALL';
+            const type = document.getElementById('filterType').value;
+            const location = document.getElementById('filterLocation').value;
+            const workforce = document.getElementById('filterWorkforce').value;
+
+            filteredPtwData = window.ptwDatabase.filter(ptw => {
+                const matchSearch = (ptw.ptwNo && ptw.ptwNo.toLowerCase().includes(search)) || 
+                                    (ptw.id && ptw.id.toString().toLowerCase().includes(search)) ||
+                                    (ptw.contractor && ptw.contractor.toLowerCase().includes(search)) ||
+                                    (ptw.shortDescription && ptw.shortDescription.toLowerCase().includes(search)) ||
+                                    (ptw.applicant && ptw.applicant.toLowerCase().includes(search));
+                
+                const matchStatus = status === 'ALL' || ptw.status === status;
+                const matchRisk = risk === 'ALL' || ptw.workingRisk === risk;
+                const matchType = type === 'ALL' || ptw.type === type;
+                const matchLoc = location === 'ALL' || ptw.location === location;
+                const matchWf = workforce === 'ALL' || ptw.workforceType === workforce;
+
+                return matchSearch && matchStatus && matchRisk && matchType && matchLoc && matchWf;
+            });
+
+            renderTable(filteredPtwData);
+        }
+
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('filterStatus').value = 'ALL';
+            if (document.getElementById('filterRisk')) document.getElementById('filterRisk').value = 'ALL';
+            document.getElementById('filterType').value = 'ALL';
+            document.getElementById('filterLocation').value = 'ALL';
+            document.getElementById('filterWorkforce').value = 'ALL';
+            applyFilters();
+        }
+
+        // Render Table Body
+        function renderTable(data) {
+            const tbody = document.getElementById('ptwTableBody');
+            tbody.innerHTML = '';
+
+            document.getElementById('showingCount').textContent = data.length;
+            document.getElementById('totalRecordCount').textContent = window.ptwDatabase.length;
+
+            if (data.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center py-8 text-slate-500">
+                            <i class="fa-solid fa-folder-open text-3xl mb-2 block"></i>
+                            Tiada rekod Permit To Work dijumpai mengikut penapis semasa.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            data.forEach(ptw => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/50 transition border-b border-slate-800/40 text-xs';
+
+                const startFormatted = formatDateTime(ptw.startTime);
+                const endFormatted = formatDateTime(ptw.endTime);
+
+                let statusBadge = '';
+                if (ptw.status === 'Active') {
+                    statusBadge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-max"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Active</span>`;
+                } else if (ptw.status === 'Expiring Soon') {
+                    statusBadge = `<span class="bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-max"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>Expiring Soon</span>`;
+                } else if (ptw.status === 'Expired') {
+                    statusBadge = `<span class="bg-red-500/10 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 w-max"><span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>Expired</span>`;
+                } else {
+                    statusBadge = `<span class="bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full font-semibold w-max block">Closed</span>`;
+                }
+
+                let riskBadge = '';
+                const r = (ptw.workingRisk || '').toLowerCase();
+                if (r.includes('critical')) {
+                    riskBadge = `<span class="bg-red-950/80 text-red-400 border border-red-800 text-[10px] px-1.5 py-0.5 rounded font-bold">Critical Risk</span>`;
+                } else if (r.includes('high')) {
+                    riskBadge = `<span class="bg-amber-950/80 text-amber-400 border border-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold">High Risk</span>`;
+                } else if (r.includes('medium')) {
+                    riskBadge = `<span class="bg-yellow-950/80 text-yellow-300 border border-yellow-800 text-[10px] px-1.5 py-0.5 rounded font-medium">Medium Risk</span>`;
+                } else {
+                    riskBadge = `<span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded">Low Risk</span>`;
+                }
+
+                tr.innerHTML = `
+                    <td class="py-3 px-3 font-mono">
+                        <div class="font-bold text-sky-400">${ptw.ptwNo || ptw.id}</div>
+                        <div class="text-[10px] text-slate-500">ID: ${ptw.id || '-'}</div>
+                    </td>
+                    <td class="py-3 px-3 max-w-[220px]">
+                        <div class="font-bold text-slate-100 truncate">${ptw.type || 'General'}</div>
+                        <div class="text-[11px] text-slate-400 line-clamp-1">${ptw.shortDescription || '-'}</div>
+                    </td>
+                    <td class="py-3 px-3 max-w-[180px]">
+                        <div class="font-semibold text-white truncate">${ptw.contractor || '-'}</div>
+                        <div class="text-[10px] text-slate-400 truncate"><i class="fa-solid fa-user text-slate-500 mr-1"></i>${ptw.applicant || 'N/A'}</div>
+                    </td>
+                    <td class="py-3 px-3">
+                        <div class="text-slate-200 font-medium">${ptw.location || '-'}</div>
+                        <div class="mt-1">${riskBadge}</div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap text-slate-300">
+                        <div class="font-mono text-[11px]">${startFormatted}</div>
+                        <div class="font-mono text-[11px] text-slate-400">s/d ${endFormatted} (${ptw.duration || 1}d)</div>
+                    </td>
+                    <td class="py-3 px-3 max-w-[200px]">
+                        <div class="text-[11px] font-semibold text-emerald-400 truncate"><i class="fa-solid fa-circle-check text-[10px] mr-1"></i>${ptw.approval || 'Pending'}</div>
+                        <div class="text-[10px] text-slate-400 line-clamp-1"><i class="fa-solid fa-clipboard-check mr-1 text-slate-500"></i>${ptw.dailyUpdate || '-'}</div>
+                    </td>
+                    <td class="py-3 px-3">${statusBadge}</td>
+                    <td class="py-3 px-3 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                            <button onclick="viewPtwDetails('${ptw.ptwNo || ptw.id}')" title="Lihat 17 Perincian" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition">
+                                <i class="fa-solid fa-eye text-xs"></i>
+                            </button>
+                            ${ptw.status !== 'Closed' ? `
+                                <button onclick="closePtwStatus('${ptw.ptwNo || ptw.id}')" title="Selesaikan / Tutup PTW" class="p-1.5 bg-red-950/80 hover:bg-red-900 border border-red-800/60 text-red-300 rounded transition">
+                                    <i class="fa-solid fa-lock text-xs"></i>
+                                </button>
+                            ` : `
+                                <button onclick="reopenPtwStatus('${ptw.ptwNo || ptw.id}')" title="Buka Semula Permit" class="p-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-800/60 text-emerald-300 rounded transition">
+                                    <i class="fa-solid fa-lock-open text-xs"></i>
+                                </button>
+                            `}
+                        </div>
+                    </td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        // View PTW Detail Dialog displaying all 17 spreadsheet columns
+        function viewPtwDetails(idOrPtwNo) {
+            const ptw = window.ptwDatabase.find(p => p.ptwNo === idOrPtwNo || p.id === idOrPtwNo);
+            if (!ptw) return;
+
+            const detailContent = document.getElementById('detailContent');
+            detailContent.innerHTML = `
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">1. ID</span>
+                        <span class="font-mono font-bold text-white text-sm">${ptw.id || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">2. PTW NO</span>
+                        <span class="font-mono font-bold text-sky-400 text-sm">${ptw.ptwNo || ptw.id}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">3. TYPE OF WORK</span>
+                        <span class="font-semibold text-amber-400">${ptw.type || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 col-span-1 sm:col-span-2">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">4. CONTRACTOR</span>
+                        <span class="font-bold text-white">${ptw.contractor || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">5. LOCATION</span>
+                        <span class="font-semibold text-slate-200">${ptw.location || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">6. APPLICANT</span>
+                        <span class="text-slate-200 font-medium">${ptw.applicant || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 col-span-1 sm:col-span-2">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">7. APPROVAL</span>
+                        <span class="text-emerald-400 font-semibold">${ptw.approval || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">8. DATE FROM</span>
+                        <span class="font-mono text-slate-300">${formatDateTime(ptw.startTime)}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">9. DATE TO</span>
+                        <span class="font-mono text-slate-300">${formatDateTime(ptw.endTime)}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">10. DURATION (DAYS)</span>
+                        <span class="font-bold text-sky-400">${ptw.duration || 1} Hari</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">11. MONTH</span>
+                        <span class="text-slate-200 font-medium">${ptw.month || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">12. WORKING RISK</span>
+                        <span class="font-bold text-rose-400">${ptw.workingRisk || 'Medium Risk'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">13. STATUS</span>
+                        <span class="font-bold text-emerald-400">${ptw.status || 'Active'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 col-span-1 sm:col-span-3">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">14. SHORT DESCRIPTION</span>
+                        <span class="text-slate-100 font-semibold">${ptw.shortDescription || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 col-span-1 sm:col-span-3">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">15. DAILY UPDATE</span>
+                        <span class="text-slate-300">${ptw.dailyUpdate || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 col-span-1 sm:col-span-2">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">16. REMARKS</span>
+                        <span class="text-slate-300">${ptw.remarks || '-'}</span>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">17. LAST UPDATED</span>
+                        <span class="font-mono text-slate-400 text-[11px]">${ptw.lastUpdated || '-'}</span>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('detailModal').classList.remove('hidden');
+        }
+
+        function handleNewPtwSubmit(e) {
+            e.preventDefault();
+
+            const startStr = document.getElementById('addStart').value;
+            const endStr = document.getElementById('addEnd').value;
+            const dtStart = new Date(startStr);
+            const dtEnd = new Date(endStr);
+            const durationDays = Math.max(1, Math.ceil((dtEnd - dtStart) / (1000 * 60 * 60 * 24)));
+            const monthName = dtStart.toLocaleString('default', { month: 'long' });
+
+            const newPtw = {
+                id: document.getElementById('addId').value.trim() || String(window.ptwDatabase.length + 1),
+                ptwNo: document.getElementById('addPtwNo').value.trim(),
+                type: document.getElementById('addType').value,
+                contractor: document.getElementById('addContractor').value.trim(),
+                workforceType: document.getElementById('addWorkforceType').value,
+                location: document.getElementById('addLocation').value,
+                applicant: document.getElementById('addApplicant').value.trim(),
+                approval: document.getElementById('addApproval').value.trim(),
+                startTime: startStr,
+                endTime: endStr,
+                duration: durationDays,
+                month: monthName,
+                remarks: document.getElementById('addRemarks').value.trim() || '-',
+                status: 'Active',
+                workingRisk: document.getElementById('addWorkingRisk').value,
+                dailyUpdate: document.getElementById('addDailyUpdate').value.trim() || 'Permit Baharu Didaftarkan',
+                lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+                shortDescription: document.getElementById('addShortDescription').value.trim(),
+                pax: 4,
+                manualClosed: false
+            };
+
+            // Save to memory & cloud sync
+            window.ptwDatabase.unshift(newPtw);
+            saveLocalBackup();
+
+            if (window.savePtwToCloud) {
+                window.savePtwToCloud(newPtw);
+            }
+
+            populateFilterDropdowns();
+            recalculateStatuses();
+            renderDashboard();
+
+            closeAddPtwModal();
+            document.getElementById('newPtwForm').reset();
+            showToast(`Permit ${newPtw.ptwNo} berjaya didaftarkan dengan 17 medan & diselaras!`);
+        }
+
+        function processParsedCsvData(dataRows) {
+            const parsedPtws = dataRows.map((row, idx) => {
+                const idVal = getFieldValue(row, ['id'], String(idx + 1));
+                const ptwNo = getFieldValue(row, ['ptw no', 'ptwno', 'ptw', 'permit'], `PTW-2026-${String(idx+1).padStart(3, '0')}`);
+                const type = getFieldValue(row, ['type of work', 'type', 'jenis kerja', 'work type'], 'General Maintenance');
+                const contractor = getFieldValue(row, ['contractor', 'syarikat', 'company'], 'External Contractor');
+                const location = getFieldValue(row, ['location', 'lokasi', 'zon'], 'Plant Area A');
+                const applicant = getFieldValue(row, ['applicant', 'pemohon', 'penyelia'], 'HSE Supervisor');
+                const approval = getFieldValue(row, ['approval', 'kelulusan', 'approver'], 'Approved');
+                
+                const startRaw = getFieldValue(row, ['date from', 'start', 'mula', 'tarikh mula'], new Date().toISOString().slice(0,16));
+                const endRaw = getFieldValue(row, ['date to', 'end', 'tamat', 'tarikh tamat'], new Date(Date.now() + 8*3600000).toISOString().slice(0,16));
+                
+                const remarks = getFieldValue(row, ['remarks', 'catatan'], '-');
+                const month = getFieldValue(row, ['month', 'bulan'], 'October');
+                const duration = parseInt(getFieldValue(row, ['duration', 'duration (days)', 'tempoh'], '1')) || 1;
+                const statusVal = getFieldValue(row, ['status'], 'Active');
+                const workingRisk = getFieldValue(row, ['working risk', 'risk', 'risiko'], 'High Risk');
+                const dailyUpdate = getFieldValue(row, ['daily update', 'kemaskini harian'], 'Pemeriksaan Tapak OK');
+                const lastUpdated = getFieldValue(row, ['last updated', 'kemaskini terakhir'], new Date().toISOString().slice(0,16));
+                const shortDesc = getFieldValue(row, ['short description', 'description', 'deskripsi'], type);
+
+                let workforceType = 'External';
+                if (contractor.toLowerCase().includes('internal')) {
+                    workforceType = 'Internal';
+                }
+
+                return {
+                    id: idVal,
+                    ptwNo: ptwNo,
+                    type: type,
+                    contractor: contractor,
+                    workforceType: workforceType,
+                    location: location,
+                    applicant: applicant,
+                    approval: approval,
+                    startTime: parseGoogleSheetDateTime(startRaw),
+                    endTime: parseGoogleSheetDateTime(endRaw),
+                    remarks: remarks,
+                    month: month,
+                    duration: duration,
+                    status: statusVal || 'Active',
+                    workingRisk: workingRisk,
+                    dailyUpdate: dailyUpdate,
+                    lastUpdated: lastUpdated,
+                    shortDescription: shortDesc,
+                    pax: 4,
+                    manualClosed: statusVal.toLowerCase() === 'closed'
+                };
+            });
+
+            window.ptwDatabase = parsedPtws;
+            saveLocalBackup();
+
+            if (window.saveBulkPtwsToCloud) {
+                window.saveBulkPtwsToCloud(window.ptwDatabase);
+            }
+
+            populateFilterDropdowns();
+            recalculateStatuses();
+            renderDashboard();
+        }
+
+        function fetchGoogleSheetCsv() {
+            const rawUrl = document.getElementById('csvUrlInput').value.trim();
+            const statusMsg = document.getElementById('syncStatusMsg');
+            const submitBtn = document.getElementById('btnSyncSubmit');
+
+            if (!rawUrl) {
+                statusMsg.className = "text-[11px] mt-1.5 text-red-400 block font-semibold";
+                statusMsg.textContent = "Sila masukkan URL Google Sheet yang sah.";
+                return;
+            }
+
+            const csvUrl = convertToCsvUrl(rawUrl);
+
+            statusMsg.className = "text-[11px] mt-1.5 text-sky-400 block font-semibold animate-pulse";
+            statusMsg.textContent = "Sedang menyambung & membaca data dari Google Sheet...";
+            submitBtn.disabled = true;
+
+            Papa.parse(csvUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    submitBtn.disabled = false;
+                    
+                    if (results.data && results.data.length > 0) {
+                        processParsedCsvData(results.data);
+                        localStorage.setItem('ptw_google_sheet_url', rawUrl);
+                        
+                        const liveBadge = document.getElementById('liveSyncBadge');
+                        if (liveBadge) liveBadge.classList.remove('hidden');
+
+                        closeSyncModal();
+                        showToast(`Berjaya menyerap ${results.data.length} rekod permit dari Google Sheet!`);
+                    } else {
+                        statusMsg.className = "text-[11px] mt-1.5 text-red-400 block font-semibold";
+                        statusMsg.textContent = "Gagal membaca data. Pastikan Google Sheet ditetapkan kepada 'Anyone with the link can view'.";
+                    }
+                },
+                error: function(err) {
+                    submitBtn.disabled = false;
+                    statusMsg.className = "text-[11px] mt-1.5 text-red-400 block font-semibold";
+                    statusMsg.textContent = "Ralat capaian CSV. Sila pastikan pautan adalah sah dan akses dikongsi untuk umum.";
+                }
+            });
+        }
+
+        // TV Monitor Mode
+        function toggleTvMode() {
+            isTvMode = !isTvMode;
+            const body = document.body;
+            const btnText = document.getElementById('tvBtnText');
+            const container = document.getElementById('tableScrollContainer');
+
+            if (isTvMode) {
+                body.classList.add('tv-mode');
+                btnText.textContent = 'Keluar Mod TV';
+                showToast("Mod TV Monitor Diaktifkan (Auto-scroll & Paparan Kontras Tinggi)");
+
+                let scrollSpeed = 1;
+                autoScrollInterval = setInterval(() => {
+                    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) {
+                        container.scrollTop = 0;
+                    } else {
+                        container.scrollTop += scrollSpeed;
+                    }
+                }, 50);
+
+            } else {
+                body.classList.remove('tv-mode');
+                btnText.textContent = 'Mod TV';
+                if (autoScrollInterval) clearInterval(autoScrollInterval);
+                showToast("Kembali ke Mod Interaktif Biasa");
+            }
+        }
+
+        // Toast Notification Function
+        function showToast(msg) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-5 right-5 bg-sky-600 text-white px-4 py-2.5 rounded-xl shadow-2xl z-50 text-xs font-semibold flex items-center gap-2 border border-sky-400/30 transition-all transform duration-300 translate-y-0';
+            toast.innerHTML = `<i class="fa-solid fa-cloud"></i> ${msg}`;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
